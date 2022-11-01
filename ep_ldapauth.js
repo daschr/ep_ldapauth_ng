@@ -148,6 +148,7 @@ exports.authorize = function(hook_name, context, cb) {
       // We've recieved back group(s) that the user matches
       // Given our current auth scheme (only checking on admin) we'll auth
       if (groups) {
+		console.log(groups)
         context.req.session.user.is_admin = true;
         authorizeLDAP.close(function (err) {
           if (err) {

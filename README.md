@@ -4,7 +4,7 @@
 
 In your etherpad-lite dir:
 
-    npm install ep_ldapauth
+    npm install ep_ldapauth_ng
 
 Add to settings.json:
 
