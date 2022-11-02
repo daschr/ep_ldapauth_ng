@@ -2,7 +2,7 @@
   "name": "ep_ldapauth_ng",
   "description": "Hooks into etherpad lite auth to provide LDAP authentication.",
   "author": "Andrew Grimberg <agrimberg@linuxfoundation.org>, David Schramm <david.schramm@live.com>",
-  "version": "0.4.1",
+  "version": "0.4.28",
   "license": "GPL-2.0",
   "repository": {
     "type": "git",

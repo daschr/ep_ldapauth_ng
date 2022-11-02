@@ -1,11 +1,11 @@
 {
   "parts": [
     {
-      "name": "ep_ldapauth",
+      "name": "ep_ldapauth_ng",
       "hooks": {
-        "authenticate": "ep_ldapauth/ep_ldapauth",
-        "authorize": "ep_ldapauth/ep_ldapauth",
-        "handleMessage": "ep_ldapauth/ep_ldapauth"
+        "authenticate": "ep_ldapauth_ng/ep_ldapauth_ng",
+        "authorize": "ep_ldapauth_ng/ep_ldapauth_ng",
+        "handleMessage": "ep_ldapauth_ng/ep_ldapauth_ng"
       }
     }
   ]
