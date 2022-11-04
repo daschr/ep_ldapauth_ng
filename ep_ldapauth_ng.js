@@ -23,7 +23,7 @@ function ldapauthSetUsername(token, username) {
 }
 
 
-function user_is_admin(username, userDN, cb){
+function get_membership(username, userDN, cb){
    var authopts= {
       url: settings.users.ldapauth.url,
       adminDn: settings.users.ldapauth.searchDN,
@@ -46,28 +46,30 @@ function user_is_admin(username, userDN, cb){
 
     ldap_con.groupsearch(username, userDN, function(err, groups) {
 		if(err){
-			console.debug("ep_ldapauth_ng.user_is_admin: error while searching: %s", err);
-			return;
+			console.error("ep_ldapauth_ng.get_membership: error while searching: %s", err);
+			return cb(false);
 		}
 
+		var membership={is_user:false, is_admin:false};
 		if(groups){
 			for(let i=0;i<groups.length;++i){
 				if(groups[i].dn==settings.users.ldapauth.adminGroupDN){
-					return cb(true);
+					membership.is_admin=true;
+				}else if(groups[i].dn==settings.users.ldapauth.normalGroupDN){
+					membership.is_user=true;
 				}
 			}
 		}else{
-			console.debug("no groups");
+			console.debug("ep_ldapauth_ng.get_membership no groups found");
 		}
 	
 		ldap_con.close(function (err) {
         	if (err) {
-        	  console.error('ep_ldapauth_ng.user_is_admin: LDAP close error: %s', err);
+        	  console.error('ep_ldapauth_ng.get_membership: LDAP close error: %s', err);
         	}
     	});
+		return cb(membership);
 	});
-
-	return cb(false);
 }
 
 exports.authenticate = function(hook_name, context, cb) {
@@ -93,7 +95,7 @@ exports.authenticate = function(hook_name, context, cb) {
 
     var authenticateLDAP = new MyLdapAuth(myLdapAuthOpts);
 
-    // Attempt to authenticate the user
+	// Attempt to authenticate the user
     authenticateLDAP.authenticate(username, password, function(err, user) {
       if (err) {
         console.error('ep_ldapauth_ng.authenticate: LDAP auth error: %s', err);
@@ -103,44 +105,47 @@ exports.authenticate = function(hook_name, context, cb) {
           }
         });
         authenticateLDAP = null;
-        return cb(false);
+        return cb([false]);
       }
 
-      // User authenticated, save off some information needed for authorization
-      context.req.session.user = { username: username };
-      if ('displayNameAttribute' in settings.users.ldapauth && settings.users.ldapauth.displayNameAttribute in user) {
-        context.req.session.user['displayName']=user[settings.users.ldapauth.displayNameAttribute];
-      }
-      else if ('cn' in user) {
-        context.req.session.user['displayName']=user.cn;
-      }
-      if (settings.users.ldapauth.groupAttributeIsDN) {
-        context.req.session.user.userDN = user.dn;
-      }
-      settings.globalUserName = username;
-      console.debug('ep_ldapauth_ng.authenticate: deferring setting of username [%s] to CLIENT_READY for express_sid = %s', username, express_sid);
-      authenticateLDAP.close(function (err) {
-        if (err) {
-          console.error('ep_ldapauth_ng.authenticate: LDAP close error: %s', err);
-        }
+	  authenticateLDAP.close(function (err) {
+      	if (err) {
+       	  console.error('ep_ldapauth_ng.authenticate: LDAP close error: %s', err);
+      	}
       });
       authenticateLDAP = null;
 
-	  user_is_admin(username, user.dn, function (r){
-		if(r){
-			console.debug("user %s is an admin!", username);
-        	context.req.session.user.is_admin = true;
-	  	}else{
-			console.debug("user %s is not an admin!", username);
-		}
-	  });
+	  const users = context.users;
+	  get_membership(username, user.dn, function (r){
+  	  	if(!r.is_user)
+			  return cb([false]);
 
-      console.debug('ep_ldapauth_ng.authenticate: successful authentication');
-      return cb(context.req.session.user.is_admin);
+		if (!(username in users)) users[username] = {};
+  
+	  	users[username].username = username;
+  	  	context.req.session.user = users[username];
+
+      	// User authenticated, save off some information needed for authorization
+      	if ('displayNameAttribute' in settings.users.ldapauth && settings.users.ldapauth.displayNameAttribute in user) {
+        	users[username]['displayName']=user[settings.users.ldapauth.displayNameAttribute];
+      	} else if ('cn' in user) {
+        	users[username]['displayName']=user.cn;
+      	}
+
+      	if (settings.users.ldapauth.groupAttributeIsDN) {
+        	users[username].userDN = user.dn;
+      	}
+
+      	settings.globalUserName = username;
+	  	console.debug('ep_ldapauth_ng.authenticate: deferring setting of username [%s] to CLIENT_READY for express_sid = %s', username, express_sid);
+    
+		users[username].is_admin = r.is_admin;
+		return cb([true]);
+	  });
     });
   } else {
     console.debug('ep_ldapauth_ng.authenticate: failed authentication no auth headers');
-    return cb(false);
+    return cb([false]);
   }
 };
 
@@ -203,15 +208,16 @@ exports.authorize = function(hook_name, context, cb) {
         return cb(false);
       }
 
+      context.req.session.user.is_admin = false;
       // We've recieved back group(s) that the user matches
       // Given our current auth scheme (only checking on admin) we'll auth
       if (groups) {
-        
-        context.req.session.user.is_admin = false;
+       	var is_user=false;
 		for(let i=0;i<groups.length;++i){
 			if(groups[i].dn==settings.users.ldapauth.adminGroupDN){
         		context.req.session.user.is_admin = true;
-				break;
+			}else if(groups[i].dn==settings.users.ldapauth.normalGroupDN){
+				is_user=true;
 			}
 		}
 
@@ -222,9 +228,8 @@ exports.authorize = function(hook_name, context, cb) {
         });
         authorizeLDAP = null;
         console.debug('ep_ldapauth_ng.authorize: successful authorization');
-        return cb(true);
+        return cb(is_user);
       } else {
-        context.req.session.user.is_admin = false;
         authorizeLDAP.close(function (err) {
           if (err) {
             console.error('ep_ldapauth_ng.authorize: LDAP close error: %s', err);
